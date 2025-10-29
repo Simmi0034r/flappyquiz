@@ -1,0 +1,139 @@
+<!DOCTYPE html>
+<html lang="no">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<title>Flappy Quiz</title>
+<style>
+html, body {margin:0; padding:0; overflow:hidden; height:100%; background:#0b1c2c; font-family:sans-serif;}
+canvas {display:block; margin:0 auto; background: linear-gradient(#08213a, #154a7a);}
+#modal, #overlay {position:fixed; inset:0; display:flex; justify-content:center; align-items:center;}
+#modal {background: rgba(0,0,0,0.8); display:none; padding:10px;}
+#overlay {background: rgba(0,0,0,0.5); font-size:24px; font-weight:700; cursor:pointer; display:none; text-align:center; padding:10px;}
+.questionBox {background:#123; border:2px solid #2a9d8f; border-radius:12px; padding:15px; width:90%; max-width:400px;}
+.option {background:#233; color:#fff; margin:8px 0; padding:12px; border-radius:8px; font-size:16px; cursor:pointer; text-align:center;}
+.option:hover {background:#2a9d8f;}
+#restartBtn {position:fixed; bottom:15px; left:50%; transform:translateX(-50%); padding:12px 18px; font-size:18px; font-weight:600; border:none; border-radius:12px; background:#2a9d8f; color:#fff; cursor:pointer;}
+#restartBtn:hover {background:#37b99b;}
+</style>
+</head>
+<body>
+<canvas id="game"></canvas>
+<div id="modal">
+  <div class="questionBox">
+    <h2 id="qText"></h2>
+    <div id="answers"></div>
+  </div>
+</div>
+<div id="overlay">Trykk på skjermen eller mellomrom for å starte / flappe</div>
+<button id="restartBtn">🔄 Restart</button>
+
+<script>
+// === 20 spørsmål ===
+const QUESTIONS=[
+{text:"What did the 13th Amendment do?",options:["Ended slavery","Gave women voting rights","Started segregation","Created Jim Crow laws"],correct:0},
+{text:"Life for African-Americans after slavery?",options:["Easy and equal","Challenging with discrimination","Full rights","Travel freely"],correct:1},
+{text:"Issue with free African-Americans?",options:["No voting rights","No jobs","No education","No travel"],correct:0},
+{text:"Purpose of Jim Crow laws?",options:["Segregation","Taxes","Education","Voting"],correct:0},
+{text:"Separate but equal?",options:["Equality justified segregation","Freedom for all","A civil rights slogan","War"],correct:0},
+{text:"Were separate facilities really equal?",options:["Yes","No"],correct:1},
+{text:"What were chain gangs?",options:["Groups of slaves","Prison labor groups","Civil rights activists","Farmers unions"],correct:1},
+{text:"What is the three strikes rule?",options:["Baseball term","Law giving life sentence after 3 crimes","Traffic law","Voting rule"],correct:1},
+{text:"Consequence of three strikes?",options:["Life sentence","Fine","Community service","Nothing"],correct:0},
+{text:"Why do people see high incarceration rates as good?",options:["Keeps society safe","Reduces taxes","Improves education","Promotes equality"],correct:0},
+{text:"What is institutionalized slavery?",options:["Slavery in prisons","Manual labor","Voluntary work","None"],correct:0},
+{text:"Civil Rights Movement?",options:["Protest for equality","War","New law","Sport event"],correct:0},
+{text:"Who was Rosa Parks?",options:["Civil rights activist","President","Singer","Teacher"],correct:0},
+{text:"Montgomery Bus Boycott?",options:["Protest against bus segregation","Bus strike","New law","Riot"],correct:0},
+{text:"Martin Luther King Jr. - 'I Have a Dream'?",options:["Hope and equality","Violence","War","Segregation"],correct:0},
+{text:"The Little Rock Nine?",options:["Nine students integrating school","Music band","Lawyers","Police"],correct:0},
+{text:"Bloody Sunday?",options:["March attacked by police","Church event","Election day","Movie"],correct:0},
+{text:"Social justice?",options:["Fair treatment for all","Justice for criminals","Tax equality","Voting reform"],correct:0},
+{text:"Equality vs. equity?",options:["Equality same, equity gives what needed","They are the same","Equity is better schools","Equality means money"],correct:0},
+{text:"What is discrimination?",options:["Unfair treatment based on race/gender","Freedom of speech","Paying taxes","Protesting"],correct:0}
+];
+
+const TOTAL=QUESTIONS.length;
+const canvas=document.getElementById("game");
+const ctx=canvas.getContext("2d");
+let W=window.innerWidth,H=window.innerHeight;
+canvas.width=W; canvas.height=H;
+
+const GRAVITY=0.35, FLAP=-6.5, GAP=150, PIPE_W=90, SPEED=2.2, SAFE=10;
+let bird={x:150,y:H/2,vy:0,r:18,rot:0};
+let pipes=[],running=false,gameOver=false,won=false,showQ=false,answered=new Array(TOTAL).fill(false);
+let clouds=[],mountains=[],grass=[];
+const modal=document.getElementById("modal"),qText=document.getElementById("qText"),answers=document.getElementById("answers");
+const overlay=document.getElementById("overlay"),restartBtn=document.getElementById("restartBtn");
+
+// bakgrunnselementer
+for(let i=0;i<6;i++) clouds.push({x:Math.random()*W,y:50+Math.random()*150});
+for(let i=0;i<4;i++) mountains.push({x:i*W/4,h:120+Math.random()*50});
+for(let i=0;i<20;i++) grass.push({x:i*50+Math.random()*40,y:H-20+Math.random()*10});
+
+function newPipe(x){return {x,w:PIPE_W,gapY:150+Math.random()*(H-300),id:Math.floor(Math.random()*TOTAL),open:false,passed:false};}
+
+function reset(){
+  bird={x:150,y:H/2,vy:0,r:18,rot:0};
+  pipes=[];for(let i=0;i<10;i++) pipes.push(newPipe(i*260+W));
+  running=false;gameOver=false;won=false;answered.fill(false);
+  overlay.textContent="Trykk på skjermen eller mellomrom for å starte / flappe";
+  overlay.style.display='flex';
+}
+
+function flap(){if(!running||gameOver||won)return; bird.vy=FLAP;}
+function showQuestion(id){
+  const q=QUESTIONS[id]; qText.textContent=q.text; answers.innerHTML='';
+  q.options.forEach((o,i)=>{
+    const div=document.createElement('div'); div.className='option'; div.textContent=o;
+    div.onclick=()=>selectAnswer(id,i);
+    answers.appendChild(div);
+  });
+  modal.style.display='flex'; running=false; showQ=true;
+}
+function selectAnswer(id,a){
+  const q=QUESTIONS[id]; if(a===q.correct){answered[id]=true;
+    const p=pipes.find(p=>p.id===id&&!p.passed); if(p) p.open=true;
+    if(answered.filter(Boolean).length===TOTAL) win();
+  } modal.style.display='none'; showQ=false; running=true;
+}
+function win(){won=true;running=false;overlay.textContent="🎉 Alle spørsmål riktig!";overlay.style.display='flex';}
+function lose(msg){gameOver=true;running=false;overlay.textContent="💀 "+msg+" — Restart";overlay.style.display='flex';}
+
+document.addEventListener('keydown',e=>{if(e.code==='Space'){e.preventDefault();flap();}if(e.code==='KeyR')reset();});
+canvas.addEventListener('touchstart',e=>{e.preventDefault(); if(overlay.style.display==='flex'){overlay.style.display='none';running=true;} else flap();});
+restartBtn.addEventListener('click',reset);
+
+function update(){
+  if(!running||showQ||gameOver||won) return;
+  bird.vy+=GRAVITY; bird.vy*=0.98; bird.y+=bird.vy;
+  bird.rot=Math.max(-0.4,Math.min(0.9,bird.vy/14));
+  for(let p of pipes)p.x-=SPEED;
+  if(pipes[0].x+pipes[0].w<-60)pipes.shift(),pipes.push(newPipe(pipes[pipes.length-1].x+260));
+  for(let p of pipes){
+    const bx=bird.x,by=bird.y,top=p.gapY-GAP/2,bottom=p.gapY+GAP/2;
+    const inPipe = bx+bird.r>p.x && bx-bird.r<p.x+p.w; // hitboks kun på rørene
+    if(inPipe && !(by>top && by<bottom) && !p.open) lose("Du traff et rør!");
+    if(!p.passed && bx>p.x+p.w/2){p.passed=true;if(!answered[p.id])showQuestion(p.id);}
+  }
+  if(bird.y>H||bird.y<0)lose("Du falt!");
+}
+
+function draw(){
+  ctx.clearRect(0,0,W,H); ctx.fillStyle="#08213a";ctx.fillRect(0,0,W,H);
+  ctx.fillStyle="#0e314f";for(let m of mountains){ctx.beginPath();ctx.moveTo(m.x,H);ctx.lineTo(m.x+W/4,H);ctx.lineTo(m.x+W/8,H-m.h);ctx.closePath();ctx.fill();}
+  ctx.fillStyle="rgba(255,255,255,0.8)";for(let c of clouds){ctx.beginPath();ctx.ellipse(c.x,c.y,40,15,0,0,Math.PI*2);ctx.fill();c.x-=0.2;if(c.x<-50)c.x=W+50;}
+  for(let p of pipes){ctx.fillStyle=p.open?"#6cce8a":"#2a9d8f"; ctx.fillRect(p.x,0,p.w,p.gapY-GAP/2); ctx.fillRect(p.x,p.gapY+GAP/2,p.w,H-(p.gapY+GAP/2));}
+  ctx.fillStyle="#2a9d8f";for(let g of grass){ctx.fillRect(g.x,g.y,30,10);g.x-=SPEED;if(g.x<-30)g.x=W+30;}
+  ctx.save(); ctx.translate(bird.x,bird.y); ctx.rotate(bird.rot);
+  ctx.fillStyle="#e76f51";ctx.beginPath();ctx.ellipse(0,0,bird.r*1.1,bird.r,0,0,Math.PI*2);ctx.fill();
+  ctx.fillStyle="#fff";ctx.beginPath();ctx.arc(6,-5,4,0,Math.PI*2);ctx.fill();
+  ctx.fillStyle="#000";ctx.beginPath();ctx.arc(7,-5,2,0,Math.PI*2);ctx.fill();
+  ctx.restore();
+}
+
+function loop(){update();draw();requestAnimationFrame(loop);}
+reset();loop();
+</script>
+</body>
+</html>
